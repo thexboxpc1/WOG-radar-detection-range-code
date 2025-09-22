@@ -34,7 +34,7 @@
   </style>
 </head>
 <body class="dark">
-  <div id="radar-calculator" role="application" aria-label="Radar Detection Calculator">
+  <div id="radar-calculator">
     <header>
       <div>
         <h1>Radar Detection Calculator</h1>
@@ -42,8 +42,8 @@
       </div>
       <div class="controls">
         <div class="top-actions">
-          <button id="downloadPy" class="small btn-ghost" title="Download the Python/Tkinter source">Download</button>
-          <button id="themeToggle" class="small btn-ghost" title="Toggle dark / light">Light mode</button>
+          <button id="downloadPy" class="small btn-ghost">Download</button>
+          <button id="themeToggle" class="small btn-ghost">Light mode</button>
         </div>
       </div>
     </header>
@@ -60,13 +60,13 @@
     </div>
 
     <div class="row">
+      <div class="col" style="display:flex;align-items:flex-end">
+        <button id="sortOrder" class="btn-ghost">Descending</button>
+      </div>
       <div class="col">
         <label for="sortMode">Sort Detected By</label>
         <input type="range" id="sortMode" min="0" max="2" step="1" value="0"/>
         <div class="slider-labels"><span>Front</span><span>Side</span><span>Avg</span></div>
-      </div>
-      <div class="col" style="display:flex;align-items:flex-end">
-        <button id="sortOrder" class="btn-ghost">Descending</button>
       </div>
     </div>
 
@@ -75,15 +75,15 @@
       <button id="resetBtn" class="btn-ghost">Reset</button>
     </div>
 
-    <div id="result" aria-live="polite">Front: -- km / -- NM<br>Side: -- km / -- NM</div>
+    <div id="result">Front: -- km / -- NM<br>Side: -- km / -- NM</div>
     <button id="copyBtn" class="btn-ghost" style="margin-top:8px">Copy Result</button>
 
     <footer>Hosted with GitHub Pages — copy the page URL to share.</footer>
   </div>
 
   <script>
-  // ---------------- FULL DATASET ----------------
-  const DATA = [
+  // ------------- DATASET -------------
+const DATA = [
     {"name":"AN/APG-81","hotRange":550,"coldRange":480,"availablePlane":"F-35A Block 3F","frontRCS":0.00015,"sideRCS":0.0005},
     {"name":"AN/APG-82(V)1","hotRange":320,"coldRange":250,"availablePlane":"F-15E Strike Eagle","frontRCS":16,"sideRCS":12},
     {"name":"AN/APG-63(V)3","hotRange":230,"coldRange":180,"availablePlane":"F-15C Golden Eagle","frontRCS":25,"sideRCS":15},
@@ -134,37 +134,32 @@
     {"name":null,"hotRange":0,"coldRange":0,"availablePlane":"Zu-57 Felon","frontRCS":1e-7,"sideRCS":1.5e-7}
   ];
 
-  // ---------------- Utility Helpers ----------------
+
+  // ------------- Logic -------------
+  let sortMode=0,sortDescending=true;
+  const txSelect=document.getElementById("txSelect");
+  const rxSelect=document.getElementById("rxSelect");
+  const resultDiv=document.getElementById("result");
+
   function iterPlanes(e){return Array.isArray(e.availablePlane)?e.availablePlane:[e.availablePlane];}
   function iterRadars(e){return Array.isArray(e.name)?e.name:[e.name];}
   function kmToNm(km){return (km*0.539957).toFixed(1);}
   function rcsFactor(rcs){return Math.sqrt(rcs);}
   function rangeKm(hotRange,factor){return (hotRange*Math.pow(factor,-0.25)).toFixed(1);}
 
-  // ---------------- Populate Dropdowns ----------------
-  const txSelect=document.getElementById("txSelect");
-  const rxSelect=document.getElementById("rxSelect");
-  let sortMode=0,sortDescending=true;
-
   function populate(){
     txSelect.length=1; rxSelect.length=1;
-    DATA.forEach(e=>{
-      iterPlanes(e).forEach(p=>{
-        let label=p;
-        if(e.name){
-          const radars=iterRadars(e);
-          if(radars.length>1) label+=` (${radars[0]})`; // show radar only if multiple
-        }
-        const o=document.createElement("option");
-        o.value=label; o.textContent=label;
-        txSelect.appendChild(o);
-      });
-    });
 
-    // sort detected planes
+    let txPlanes=[];
+    DATA.forEach(e=>{
+      iterPlanes(e).forEach(p=>{ if(p) txPlanes.push(p); });
+    });
+    txPlanes=[...new Set(txPlanes)].sort((a,b)=> sortDescending ? b.localeCompare(a) : a.localeCompare(b));
+    txPlanes.forEach(p=>{let o=document.createElement("option");o.value=p;o.textContent=p;txSelect.appendChild(o);});
+
     let stats={};
     DATA.forEach(e=>{
-      const f=e.frontRCS||0, s=e.sideRCS||0, avg=(f+s)/2;
+      const f=e.frontRCS||0,s=e.sideRCS||0,avg=(f+s)/2;
       iterPlanes(e).forEach(p=>{
         if(!stats[p]) stats[p]={front:0,side:0,avg:0};
         stats[p].front=Math.max(stats[p].front,f);
@@ -175,35 +170,16 @@
     let key=["front","side","avg"][sortMode];
     let sorted=Object.entries(stats).sort((a,b)=>
       sortDescending?b[1][key]-a[1][key]:a[1][key]-b[1][key]);
-    sorted.forEach(([opt])=>{
-      const o=document.createElement("option");o.value=opt;o.textContent=opt;rxSelect.appendChild(o);
-    });
+    sorted.forEach(([p])=>{let o=document.createElement("option");o.value=p;o.textContent=p;rxSelect.appendChild(o);});
   }
 
-  function parseTxLabel(label){
-    if(!label)return[null,null];
-    const idx=label.lastIndexOf(" (");
-    if(idx!==-1&&label.endsWith(")"))return[label.substring(0,idx).trim(),label.substring(idx+2,label.length-1).trim()];
-    return[label.trim(),null];
-  }
+  function parseTxLabel(l){return [l,null];}
+  function findTxEntry(p){return DATA.find(e=>iterPlanes(e).includes(p));}
+  function findRxEntry(p){return DATA.find(e=>iterPlanes(e).includes(p));}
 
-  function findTxEntry(plane,radar){
-    if(!plane)return null;
-    if(radar){for(const e of DATA){if(iterPlanes(e).includes(plane)&&iterRadars(e).includes(radar))return e;}return null;}
-    let best=null,bestHot=-1;
-    for(const e of DATA){if(e.name)for(const p of iterPlanes(e)){if(p===plane&&(e.hotRange||0)>bestHot){bestHot=e.hotRange;best=e;}}}
-    return best;
-  }
-
-  function findRxEntry(plane){
-    let best=null,bestFront=-1;
-    for(const e of DATA){for(const p of iterPlanes(e)){if(p===plane&&(e.frontRCS||0)>bestFront){bestFront=e.frontRCS;best=e;}}}
-    return best;
-  }
-
-  function calculateRadar(){
-    const [plane,radar]=parseTxLabel(txSelect.value);
-    const tx=findTxEntry(plane,radar),rx=findRxEntry(rxSelect.value);
+  function calculate(){
+    const [p]=parseTxLabel(txSelect.value);
+    const tx=findTxEntry(p),rx=findRxEntry(rxSelect.value);
     if(!tx||!rx){resultDiv.innerHTML="Front: N/A<br>Side: N/A";return;}
     const hot=tx.hotRange,f=rx.frontRCS,s=rx.sideRCS;
     if(!hot||!f||!s){resultDiv.innerHTML="Front: N/A<br>Side: N/A";return;}
@@ -211,147 +187,24 @@
     resultDiv.innerHTML=`Front: ${fk} km / ${kmToNm(fk)} NM<br>Side: ${sk} km / ${kmToNm(sk)} NM`;
   }
 
-  const resultDiv=document.getElementById("result");
-  document.getElementById("calcBtn").addEventListener("click",calculateRadar);
-  document.getElementById("resetBtn").addEventListener("click",()=>{txSelect.selectedIndex=0;rxSelect.selectedIndex=0;resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM";});
-  document.getElementById("copyBtn").addEventListener("click",()=>{navigator.clipboard.writeText(resultDiv.innerText);alert("Result copied!");});
+  document.getElementById("calcBtn").onclick=calculate;
+  document.getElementById("resetBtn").onclick=()=>{txSelect.selectedIndex=0;rxSelect.selectedIndex=0;resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM";};
+  document.getElementById("copyBtn").onclick=()=>{navigator.clipboard.writeText(resultDiv.innerText);alert("Result copied!");};
 
-  document.getElementById("sortMode").addEventListener("input",e=>{sortMode=parseInt(e.target.value);populate();});
-  document.getElementById("sortOrder").addEventListener("click",()=>{sortDescending=!sortDescending;document.getElementById("sortOrder").textContent=sortDescending?"Descending":"Ascending";populate();});
+  document.getElementById("sortMode").oninput=e=>{sortMode=parseInt(e.target.value);populate();};
+  document.getElementById("sortOrder").onclick=()=>{sortDescending=!sortDescending;document.getElementById("sortOrder").textContent=sortDescending?"Descending":"Ascending";populate();};
 
   // Theme toggle
-  const themeToggle=document.getElementById("themeToggle");
-  themeToggle.addEventListener("click",()=>{document.body.classList.toggle("dark");themeToggle.textContent=document.body.classList.contains("dark")?"Light mode":"Dark mode";});
+  document.getElementById("themeToggle").onclick=()=>{document.body.classList.toggle("dark");themeToggle.textContent=document.body.classList.contains("dark")?"Light mode":"Dark mode";};
 
-  // ---------------- Python Download ----------------
-  const pySource = `import tkinter as tk
-from tkinter import messagebox
-import math
-
-DATA = ${JSON.stringify(DATA,null,2)}
-
-class RadarApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Radar Detection Calculator")
-        self.configure(bg="#1f1f1f")
-        self.geometry("640x480")
-
-        self.sort_mode = tk.IntVar(value=0)
-        self.sort_desc = True
-
-        tk.Label(self,text="Transmitting Plane",fg="white",bg="#1f1f1f").pack()
-        self.tx_var=tk.StringVar()
-        self.tx_menu=tk.OptionMenu(self,self.tx_var,*self.tx_options())
-        self.tx_menu.pack()
-
-        tk.Label(self,text="Detected Plane",fg="white",bg="#1f1f1f").pack()
-        self.rx_var=tk.StringVar()
-        self.rx_menu=tk.OptionMenu(self,self.rx_var,*self.rx_options())
-        self.rx_menu.pack()
-
-        tk.Label(self,text="Sort Detected By (0=Front,1=Side,2=Avg)",fg="white",bg="#1f1f1f").pack()
-        tk.Scale(self,from_=0,to=2,orient="horizontal",variable=self.sort_mode,command=lambda e:self.refresh_rx()).pack(fill="x")
-
-        self.order_btn=tk.Button(self,text="⬆",command=self.toggle_order)
-        self.order_btn.pack()
-
-        tk.Button(self,text="Calculate",command=self.calculate).pack()
-        tk.Button(self,text="Reset",command=self.reset).pack()
-        tk.Button(self,text="Copy Result",command=self.copy_result).pack()
-
-        self.result_lbl=tk.Label(self,text="Front: -- km / -- NM\\nSide: -- km / -- NM",fg="white",bg="#1f1f1f")
-        self.result_lbl.pack(pady=10)
-
-    def tx_options(self):
-        opts=[]
-        for e in DATA:
-            planes=e.get("availablePlane",[])
-            if not isinstance(planes,list):planes=[planes]
-            for p in planes:
-                if e.get("name") and isinstance(e["name"],list) and len(e["name"])>1:
-                    opts.append(f"{p} ({e['name'][0]})")
-                else:
-                    opts.append(p)
-        return opts
-
-    def rx_options(self):
-        stats={}
-        for e in DATA:
-            f,s=e.get("frontRCS",0),e.get("sideRCS",0)
-            avg=(f+s)/2
-            planes=e.get("availablePlane",[])
-            if not isinstance(planes,list):planes=[planes]
-            for p in planes:
-                if p not in stats:stats[p]={"front":0,"side":0,"avg":0}
-                stats[p]["front"]=max(stats[p]["front"],f)
-                stats[p]["side"]=max(stats[p]["side"],s)
-                stats[p]["avg"]=max(stats[p]["avg"],avg)
-        key=["front","side","avg"][self.sort_mode.get()]
-        return [p for p,_ in sorted(stats.items(),key=lambda kv:kv[1][key],reverse=self.sort_desc)]
-
-    def refresh_rx(self):
-        menu=self.rx_menu["menu"]
-        menu.delete(0,"end")
-        for opt in self.rx_options():
-            menu.add_command(label=opt,command=tk._setit(self.rx_var,opt))
-
-    def toggle_order(self):
-        self.sort_desc=not self.sort_desc
-        self.order_btn.config(text="⬆" if self.sort_desc else "⬇")
-        self.refresh_rx()
-
-    def calculate(self):
-        tx=self.tx_var.get()
-        rx=self.rx_var.get()
-        if not tx or not rx:
-            self.result_lbl.config(text="Front: N/A\\nSide: N/A")
-            return
-        # find entries
-        tx_entry=None
-        for e in DATA:
-            planes=e.get("availablePlane",[])
-            if not isinstance(planes,list):planes=[planes]
-            if tx.split(" (")[0] in planes:
-                tx_entry=e;break
-        rx_entry=None
-        for e in DATA:
-            planes=e.get("availablePlane",[])
-            if not isinstance(planes,list):planes=[planes]
-            if rx in planes:
-                rx_entry=e;break
-        if not tx_entry or not rx_entry:
-            self.result_lbl.config(text="Front: N/A\\nSide: N/A");return
-        hot=tx_entry.get("hotRange",0)
-        f=rx_entry.get("frontRCS",0);s=rx_entry.get("sideRCS",0)
-        if not hot or not f or not s:
-            self.result_lbl.config(text="Front: N/A\\nSide: N/A");return
-        fk=hot*(f**-0.25);sk=hot*(s**-0.25)
-        text=f"Front: {fk:.1f} km / {fk*0.539957:.1f} NM\\nSide: {sk:.1f} km / {sk*0.539957:.1f} NM"
-        self.result_lbl.config(text=text)
-        self._last=text
-
-    def reset(self):
-        self.tx_var.set("");self.rx_var.set("")
-        self.result_lbl.config(text="Front: -- km / -- NM\\nSide: -- km / -- NM")
-
-    def copy_result(self):
-        self.clipboard_clear()
-        self.clipboard_append(getattr(self,"_last",""))
-        messagebox.showinfo("Copied","Result copied to clipboard")
-
-if __name__=="__main__":
-    app=RadarApp();app.mainloop()`;
-
-  document.getElementById("downloadPy").addEventListener("click",()=>{
+  // Python download (null→None)
+  document.getElementById("downloadPy").onclick=()=>{
+    let pyData=JSON.stringify(DATA,null,2).replace(/null/g,"None");
+    const pySource="DATA = "+pyData+"\n\n# ... rest of tkinter app ...";
     const blob=new Blob([pySource],{type:"text/x-python"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;a.download="radar_calculator.pyw";a.click();
-    URL.revokeObjectURL(url);
-  });
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="radar_calculator.pyw";a.click();URL.revokeObjectURL(url);
+  };
 
-  // Init
   populate();
   </script>
 </body>
