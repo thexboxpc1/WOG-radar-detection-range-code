@@ -13,7 +13,6 @@
       --bg:#171717; --card:#1f1f1f; --accent:#5aa6ff; --text:#e8eef8; --muted:#aab0bb;
       --control-bg:#1a1a1a; --control-border:#333;
     }
-
     body{font-family:Segoe UI,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:18px;display:flex;justify-content:center;min-height:100vh}
     #radar-calculator{width:100%;max-width:920px;background:var(--card);box-shadow:0 8px 24px rgba(0,0,0,0.12);border-radius:10px;padding:20px}
     header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
@@ -22,14 +21,15 @@
     .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
     .col{flex:1;min-width:220px}
     label{display:block;font-size:0.85rem;margin-bottom:6px;color:var(--muted)}
-    select,button{width:100%;padding:10px;border-radius:8px;border:1px solid var(--control-border);font-size:0.95rem;background:var(--control-bg);color:var(--text)}
+    select,button,input[type=range]{width:100%;padding:10px;border-radius:8px;border:1px solid var(--control-border);font-size:0.95rem;background:var(--control-bg);color:var(--text)}
     select{appearance:none}
     .btn-primary{background:var(--accent);color:white;border:none;cursor:pointer}
-    .btn-ghost{background:transparent;border:1px solid var(--control-border)}
-    #result{margin-top:12px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.04);font-weight:700}
+    .btn-ghost{background:transparent;border:1px solid var(--control-border);cursor:pointer}
+    #result{margin-top:12px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.04);font-weight:700;white-space:pre-line}
     footer{font-size:0.82rem;color:var(--muted);margin-top:12px}
     .top-actions{display:flex;gap:8px;align-items:center}
     .small{font-size:0.85rem;padding:8px;border-radius:8px}
+    .slider-labels{display:flex;justify-content:space-between;font-size:0.8rem;color:var(--muted);margin-top:4px}
     @media (max-width:560px){ .row{flex-direction:column} .controls{flex-direction:column-reverse} }
   </style>
 </head>
@@ -40,7 +40,6 @@
         <h1>Radar Detection Calculator</h1>
         <div style="color:var(--muted);font-size:0.88rem">Choose a transmitting plane and a detected plane, then Calculate.</div>
       </div>
-
       <div class="controls">
         <div class="top-actions">
           <button id="downloadPy" class="small btn-ghost" title="Download the Python/Tkinter source">Download</button>
@@ -54,10 +53,20 @@
         <label for="txSelect">Transmitting Plane</label>
         <select id="txSelect"><option value="">Select transmitting plane…</option></select>
       </div>
-
       <div class="col">
         <label for="rxSelect">Detected Plane</label>
         <select id="rxSelect"><option value="">Select detected plane…</option></select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label for="sortMode">Sort Detected By</label>
+        <input type="range" id="sortMode" min="0" max="2" step="1" value="0"/>
+        <div class="slider-labels"><span>Front</span><span>Side</span><span>Avg</span></div>
+      </div>
+      <div class="col" style="display:flex;align-items:flex-end">
+        <button id="sortOrder" class="btn-ghost">Descending</button>
       </div>
     </div>
 
@@ -67,6 +76,7 @@
     </div>
 
     <div id="result" aria-live="polite">Front: -- km / -- NM<br>Side: -- km / -- NM</div>
+    <button id="copyBtn" class="btn-ghost" style="margin-top:8px">Copy Result</button>
 
     <footer>Hosted with GitHub Pages — copy the page URL to share.</footer>
   </div>
@@ -124,479 +134,224 @@
     {"name":null,"hotRange":0,"coldRange":0,"availablePlane":"Zu-57 Felon","frontRCS":1e-7,"sideRCS":1.5e-7}
   ];
 
-  // ---------------- Helpers ----------------
-  function iterPlanes(entry){ return Array.isArray(entry.availablePlane)?entry.availablePlane:[entry.availablePlane]; }
-  function iterRadars(entry){ return Array.isArray(entry.name)?entry.name:[entry.name]; }
-  function rcsFactor(rcs){ return Math.pow(rcs/5,1/4); }
-  function rangeKm(base,f){ return Number((base*f).toFixed(2)); }
-  function kmToNm(km){ return Number((km*0.539957).toFixed(2)); }
+  // ---------------- Utility Helpers ----------------
+  function iterPlanes(e){return Array.isArray(e.availablePlane)?e.availablePlane:[e.availablePlane];}
+  function iterRadars(e){return Array.isArray(e.name)?e.name:[e.name];}
+  function kmToNm(km){return (km*0.539957).toFixed(1);}
+  function rcsFactor(rcs){return Math.sqrt(rcs);}
+  function rangeKm(hotRange,factor){return (hotRange*Math.pow(factor,-0.25)).toFixed(1);}
 
-  function buildTransmitOptions(data){
-    const radarHot={}, planeToRadars={};
-    data.forEach(entry=>{
-      const hot=entry.hotRange||0;
-      iterRadars(entry).forEach(r=>{ if(r!=null) radarHot[r]=Math.max(radarHot[r]||0,hot); });
-      iterPlanes(entry).forEach(p=>{
-        if(p==null) return;
-        planeToRadars[p]=planeToRadars[p]||new Set();
-        iterRadars(entry).forEach(r=>{ if(r!=null) planeToRadars[p].add(r); });
-      });
-    });
-    const pairs=[];
-    Object.keys(planeToRadars).forEach(p=>{
-      const rset=Array.from(planeToRadars[p]);
-      if(rset.length===1){ pairs.push({label:p,hot:radarHot[rset[0]]||0}); }
-      else if(rset.length>1){
-        rset.sort((a,b)=>(radarHot[b]||0)-(radarHot[a]||0));
-        rset.forEach(r=>pairs.push({label:`${p} (${r})`,hot:radarHot[r]||0}));
-      }
-    });
-    pairs.sort((a,b)=>b.hot-a.hot);
-    return pairs.map(p=>p.label);
-  }
-
-  function buildDetectOptions(data){
-    const best={};
-    data.forEach(e=>{
-      iterPlanes(e).forEach(p=>{
-        if(p!=null) best[p]=Math.max(best[p]||-1,e.frontRCS||0);
-      });
-    });
-    return Object.entries(best).sort((a,b)=>b[1]-a[1]).map(kv=>kv[0]);
-  }
-
+  // ---------------- Populate Dropdowns ----------------
   const txSelect=document.getElementById("txSelect");
   const rxSelect=document.getElementById("rxSelect");
-  const resultDiv=document.getElementById("result");
+  let sortMode=0,sortDescending=true;
 
   function populate(){
     txSelect.length=1; rxSelect.length=1;
-    buildTransmitOptions(DATA).forEach(opt=>{
-      const o=document.createElement("option"); o.value=opt; o.textContent=opt; txSelect.appendChild(o);
+    DATA.forEach(e=>{
+      iterPlanes(e).forEach(p=>{
+        let label=p;
+        if(e.name){
+          const radars=iterRadars(e);
+          if(radars.length>1) label+=` (${radars[0]})`; // show radar only if multiple
+        }
+        const o=document.createElement("option");
+        o.value=label; o.textContent=label;
+        txSelect.appendChild(o);
+      });
     });
-    buildDetectOptions(DATA).forEach(opt=>{
-      const o=document.createElement("option"); o.value=opt; o.textContent=opt; rxSelect.appendChild(o);
+
+    // sort detected planes
+    let stats={};
+    DATA.forEach(e=>{
+      const f=e.frontRCS||0, s=e.sideRCS||0, avg=(f+s)/2;
+      iterPlanes(e).forEach(p=>{
+        if(!stats[p]) stats[p]={front:0,side:0,avg:0};
+        stats[p].front=Math.max(stats[p].front,f);
+        stats[p].side=Math.max(stats[p].side,s);
+        stats[p].avg=Math.max(stats[p].avg,avg);
+      });
+    });
+    let key=["front","side","avg"][sortMode];
+    let sorted=Object.entries(stats).sort((a,b)=>
+      sortDescending?b[1][key]-a[1][key]:a[1][key]-b[1][key]);
+    sorted.forEach(([opt])=>{
+      const o=document.createElement("option");o.value=opt;o.textContent=opt;rxSelect.appendChild(o);
     });
   }
 
   function parseTxLabel(label){
-    if(!label) return [null,null];
+    if(!label)return[null,null];
     const idx=label.lastIndexOf(" (");
-    if(idx!==-1&&label.endsWith(")")) return [label.substring(0,idx),label.substring(idx+2,label.length-1)];
-    return [label,null];
+    if(idx!==-1&&label.endsWith(")"))return[label.substring(0,idx).trim(),label.substring(idx+2,label.length-1).trim()];
+    return[label.trim(),null];
   }
 
   function findTxEntry(plane,radar){
-    if(!plane) return null;
-    if(radar){
-      for(const e of DATA){
-        if(iterPlanes(e).includes(plane)&&iterRadars(e).includes(radar)) return e;
-      }
-      return null;
-    }
-    let cand=null,best=-1;
-    for(const e of DATA){
-      if(e.name==null) continue;
-      if(iterPlanes(e).includes(plane)&&(e.hotRange||0)>best){ best=e.hotRange; cand=e; }
-    }
-    return cand;
+    if(!plane)return null;
+    if(radar){for(const e of DATA){if(iterPlanes(e).includes(plane)&&iterRadars(e).includes(radar))return e;}return null;}
+    let best=null,bestHot=-1;
+    for(const e of DATA){if(e.name)for(const p of iterPlanes(e)){if(p===plane&&(e.hotRange||0)>bestHot){bestHot=e.hotRange;best=e;}}}
+    return best;
   }
 
   function findRxEntry(plane){
-    let cand=null,best=-1;
-    for(const e of DATA){
-      if(iterPlanes(e).includes(plane)&&(e.frontRCS||0)>best){ best=e.frontRCS; cand=e; }
-    }
-    return cand;
+    let best=null,bestFront=-1;
+    for(const e of DATA){for(const p of iterPlanes(e)){if(p===plane&&(e.frontRCS||0)>bestFront){bestFront=e.frontRCS;best=e;}}}
+    return best;
   }
 
-  document.getElementById("calcBtn").onclick=()=>{
+  function calculateRadar(){
     const [plane,radar]=parseTxLabel(txSelect.value);
-    const tx=findTxEntry(plane,radar);
-    const rx=findRxEntry(rxSelect.value);
-    if(!tx||!rx){ resultDiv.textContent="Front: N/A\nSide: N/A"; return; }
-    const hot=tx.hotRange||0, fr=rx.frontRCS||0, sr=rx.sideRCS||0;
-    if(!hot||!fr||!sr){ resultDiv.textContent="Front: N/A\nSide: N/A"; return; }
-    const fk=rangeKm(hot,rcsFactor(fr)), sk=rangeKm(hot,rcsFactor(sr));
-    const fn=kmToNm(fk), sn=kmToNm(sk);
-    resultDiv.innerHTML=`Front: ${fk} km / ${fn} NM<br>Side: ${sk} km / ${sn} NM`;
-  };
-
-  document.getElementById("resetBtn").onclick=()=>{ txSelect.selectedIndex=0; rxSelect.selectedIndex=0; resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM"; };
-
-  const themeToggle=document.getElementById("themeToggle");
-  themeToggle.onclick=()=>{
-    document.body.classList.toggle("dark");
-    themeToggle.textContent=document.body.classList.contains("dark")?"Light mode":"Dark mode";
-  };
-
-  populate();
-
-  // ---------------- Download Python Source (safe conversion) ----------------
-  function jsToPython(obj){
-    // stringify then convert JS null/true/false to Python None/True/False
-    return JSON.stringify(obj, null, 4)
-      .replace(/\bnull\b/g, "None")
-      .replace(/\btrue\b/g, "True")
-      .replace(/\bfalse\b/g, "False");
+    const tx=findTxEntry(plane,radar),rx=findRxEntry(rxSelect.value);
+    if(!tx||!rx){resultDiv.innerHTML="Front: N/A<br>Side: N/A";return;}
+    const hot=tx.hotRange,f=rx.frontRCS,s=rx.sideRCS;
+    if(!hot||!f||!s){resultDiv.innerHTML="Front: N/A<br>Side: N/A";return;}
+    const fk=rangeKm(hot,rcsFactor(f)),sk=rangeKm(hot,rcsFactor(s));
+    resultDiv.innerHTML=`Front: ${fk} km / ${kmToNm(fk)} NM<br>Side: ${sk} km / ${kmToNm(sk)} NM`;
   }
 
-  const pySource = `
-# radar_calculator_gui.pyw
-import tkinter as tk
-from math import pow
+  const resultDiv=document.getElementById("result");
+  document.getElementById("calcBtn").addEventListener("click",calculateRadar);
+  document.getElementById("resetBtn").addEventListener("click",()=>{txSelect.selectedIndex=0;rxSelect.selectedIndex=0;resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM";});
+  document.getElementById("copyBtn").addEventListener("click",()=>{navigator.clipboard.writeText(resultDiv.innerText);alert("Result copied!");});
 
-# ---------------------- DATA ----------------------
-DATA = ${jsToPython(DATA)}
+  document.getElementById("sortMode").addEventListener("input",e=>{sortMode=parseInt(e.target.value);populate();});
+  document.getElementById("sortOrder").addEventListener("click",()=>{sortDescending=!sortDescending;document.getElementById("sortOrder").textContent=sortDescending?"Descending":"Ascending";populate();});
 
-# ---------------------- Appearance & helpers ----------------------
-FONT = ("Segoe UI", 12)
+  // Theme toggle
+  const themeToggle=document.getElementById("themeToggle");
+  themeToggle.addEventListener("click",()=>{document.body.classList.toggle("dark");themeToggle.textContent=document.body.classList.contains("dark")?"Light mode":"Dark mode";});
 
-DARK = {
-    "bg": "#1e1e1e",
-    "fg": "#ffffff",
-    "button_bg": "#2f2f2f",
-    "button_fg": "#ffffff",
-    "listbox_bg": "#252525",
-    "listbox_fg": "#ffffff",
-    "active_bg": "#444444"
-}
-LIGHT = {
-    "bg": "#ffffff",
-    "fg": "#000000",
-    "button_bg": "#f0f0f0",
-    "button_fg": "#000000",
-    "listbox_bg": "#ffffff",
-    "listbox_fg": "#000000",
-    "active_bg": "#d0d0d0"
-}
+  // ---------------- Python Download ----------------
+  const pySource = `import tkinter as tk
+from tkinter import messagebox
+import math
 
-def rcs_factor(rcs):
-    return pow(rcs / 5, 1/4)
+DATA = ${JSON.stringify(DATA,null,2)}
 
-def range_km(base_range, factor):
-    return round(base_range * factor, 2)
-
-def km_to_nm(km):
-    return round(km * 0.539957, 2)
-
-def iter_planes(entry):
-    p = entry.get("availablePlane")
-    if isinstance(p, list):
-        for x in p:
-            yield x
-    else:
-        yield p
-
-def iter_radars(entry):
-    r = entry.get("name")
-    if isinstance(r, list):
-        for x in r:
-            yield x
-    else:
-        yield r
-
-# ---------------------- Build option lists ----------------------
-def build_transmit_options(data):
-    radar_hot = {}
-    plane_to_radars = {}
-    for entry in data:
-        hot = entry.get("hotRange", 0) or 0
-        for r in iter_radars(entry):
-            if r is None: continue
-            radar_hot[r] = max(radar_hot.get(r, 0), hot)
-        for p in iter_planes(entry):
-            if p is None: continue
-            plane_to_radars.setdefault(p, set())
-            for r in iter_radars(entry):
-                if r is None: continue
-                plane_to_radars[p].add(r)
-    pairs = []
-    for plane, rset in plane_to_radars.items():
-        if not rset: continue
-        if len(rset) == 1:
-            r = next(iter(rset))
-            pairs.append((plane, radar_hot.get(r, 0)))
-        else:
-            for r in sorted(rset, key=lambda x: -radar_hot.get(x, 0)):
-                pairs.append((f"{plane} ({r})", radar_hot.get(r, 0)))
-    pairs.sort(key=lambda kv: -kv[1])
-    return [label for label, _ in pairs]
-
-def build_detect_options(data):
-    plane_best_front = {}
-    for entry in data:
-        front = entry.get("frontRCS", 0) or 0
-        for p in iter_planes(entry):
-            if p is None: continue
-            plane_best_front[p] = max(plane_best_front.get(p, -1), front)
-    return [p for p, _ in sorted(plane_best_front.items(), key=lambda kv: -kv[1])]
-
-# ---------------------- Scrollable dropdown ----------------------
-class ScrollableDropdown(tk.Frame):
-    open_instance = None
-    _just_closed = False
-
-    def __init__(self, parent, title, options, callback, theme, height=9, width_chars=40):
-        super().__init__(parent, bg=theme["bg"])
-        self.title_label = tk.Label(self, text=title, bg=theme["bg"], fg=theme["fg"], font=FONT)
-        self.title_label.pack(pady=(0, 4))
-
-        self.var = tk.StringVar(value="Select...")
-        self.button = tk.Button(self, textvariable=self.var, anchor="w",
-                                width=width_chars,
-                                bg=theme["button_bg"], fg=theme["button_fg"],
-                                activebackground=theme["active_bg"], font=FONT)
-        self.button.pack(fill="x")
-        self.button.bind("<ButtonRelease-1>", self._on_release)
-
-        self.options = list(options)
-        self.callback = callback
-        self.theme = theme
-        self.height = height
-
-        self.top = None
-        self.listbox = None
-
-    def _on_release(self, event):
-        if ScrollableDropdown._just_closed:
-            return
-        self.toggle()
-
-    def toggle(self):
-        if ScrollableDropdown.open_instance and ScrollableDropdown.open_instance is not self:
-            ScrollableDropdown.open_instance.close()
-        if self.top:
-            self.close()
-        else:
-            self.open()
-
-    def open(self):
-        if self.top: return
-        ScrollableDropdown.open_instance = self
-        self.top = tk.Toplevel(self)
-        self.top.overrideredirect(True)
-        self.top.configure(bg=self.theme["bg"])
-        x = self.button.winfo_rootx()
-        y = self.button.winfo_rooty() + self.button.winfo_height()
-        w = max(self.button.winfo_width(), 200)
-        h = min(self.height * 22, 400)
-        self.top.geometry(f"{w}x{h}+{x}+{y}")
-        frame = tk.Frame(self.top, bg=self.theme["bg"])
-        frame.pack(fill="both", expand=True)
-        self.listbox = tk.Listbox(frame, height=self.height,
-                                  bg=self.theme["listbox_bg"], fg=self.theme["listbox_fg"],
-                                  selectbackground=self.theme["active_bg"], activestyle="none",
-                                  exportselection=False, font=FONT)
-        scrollbar = tk.Scrollbar(frame, command=self.listbox.yview)
-        self.listbox.configure(yscrollcommand=scrollbar.set)
-        self.listbox.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        for opt in self.options:
-            self.listbox.insert("end", opt)
-        self.listbox.bind("<<ListboxSelect>>", self._on_select)
-        self.listbox.bind("<MouseWheel>", self._on_mousewheel)
-        self.listbox.bind("<Button-4>", lambda e: self.listbox.yview_scroll(-1, "units"))
-        self.listbox.bind("<Button-5>", lambda e: self.listbox.yview_scroll(1, "units"))
-        self.top.bind("<FocusOut>", lambda e: self.close())
-        try:
-            self.top.focus_force()
-        except Exception:
-            pass
-
-    def _on_mousewheel(self, event):
-        if self.listbox:
-            try:
-                delta = int(event.delta / 120)
-            except Exception:
-                delta = 0
-            if delta:
-                self.listbox.yview_scroll(-delta, "units")
-
-    def _on_select(self, event):
-        sel = self.listbox.curselection()
-        if not sel:
-            return
-        val = self.listbox.get(sel[0])
-        self.var.set(val)
-        if callable(self.callback):
-            self.callback(val)
-        self.close()
-
-    def close(self):
-        if self.top:
-            try:
-                self.top.destroy()
-            except Exception:
-                pass
-        self.top = None
-        self.listbox = None
-        if ScrollableDropdown.open_instance is self:
-            ScrollableDropdown.open_instance = None
-        ScrollableDropdown._just_closed = True
-        self.after(150, lambda: setattr(ScrollableDropdown, "_just_closed", False))
-
-    def update_theme(self, theme):
-        self.theme = theme
-        self.config(bg=theme["bg"])
-        self.title_label.config(bg=theme["bg"], fg=theme["fg"])
-        self.button.config(bg=theme["button_bg"], fg=theme["button_fg"], activebackground=theme["active_bg"])
-        if self.listbox:
-            self.listbox.config(bg=theme["listbox_bg"], fg=theme["listbox_fg"], selectbackground=theme["active_bg"])
-        if self.top:
-            self.top.config(bg=theme["bg"])
-
-# ---------------------- Main app ----------------------
-class RadarCalApp(tk.Tk):
-    def __init__(self, data):
+class RadarApp(tk.Tk):
+    def __init__(self):
         super().__init__()
-        self.data = data
-        self.theme = DARK
         self.title("Radar Detection Calculator")
-        self.geometry("250x330")
-        self.minsize(250, 330)
-        self.resizable(True, True)
-        self.configure(bg=self.theme["bg"])
+        self.configure(bg="#1f1f1f")
+        self.geometry("640x480")
 
-        self.tx_options = build_transmit_options(self.data)
-        self.rx_options = build_detect_options(self.data)
+        self.sort_mode = tk.IntVar(value=0)
+        self.sort_desc = True
 
-        self.tx_dd = ScrollableDropdown(self, "Transmitting Plane", self.tx_options, self.on_tx_selected, self.theme)
-        self.tx_dd.pack(fill="x", padx=20, pady=(12, 8))
+        tk.Label(self,text="Transmitting Plane",fg="white",bg="#1f1f1f").pack()
+        self.tx_var=tk.StringVar()
+        self.tx_menu=tk.OptionMenu(self,self.tx_var,*self.tx_options())
+        self.tx_menu.pack()
 
-        self.rx_dd = ScrollableDropdown(self, "Detected Plane", self.rx_options, self.on_rx_selected, self.theme)
-        self.rx_dd.pack(fill="x", padx=20, pady=(0, 8))
+        tk.Label(self,text="Detected Plane",fg="white",bg="#1f1f1f").pack()
+        self.rx_var=tk.StringVar()
+        self.rx_menu=tk.OptionMenu(self,self.rx_var,*self.rx_options())
+        self.rx_menu.pack()
 
-        self.calc_btn = tk.Button(self, text="Calculate", command=self.calculate,
-                                  bg=self.theme["button_bg"], fg=self.theme["button_fg"], font=FONT)
-        self.calc_btn.pack(pady=(6, 12))
+        tk.Label(self,text="Sort Detected By (0=Front,1=Side,2=Avg)",fg="white",bg="#1f1f1f").pack()
+        tk.Scale(self,from_=0,to=2,orient="horizontal",variable=self.sort_mode,command=lambda e:self.refresh_rx()).pack(fill="x")
 
-        self.result_label = tk.Label(self, text="Front: -- km / -- NM\\nSide:  -- km / -- NM",
-                                     bg=self.theme["bg"], fg=self.theme["fg"], font=FONT, justify="center")
-        self.result_label.pack(pady=6)
+        self.order_btn=tk.Button(self,text="⬆",command=self.toggle_order)
+        self.order_btn.pack()
 
-        self.toggle_btn = tk.Button(self, text="Switch to Light Mode", command=self.toggle_theme,
-                                    bg=self.theme["button_bg"], fg=self.theme["button_fg"], font=FONT)
-        self.toggle_btn.pack(pady=(6, 12))
+        tk.Button(self,text="Calculate",command=self.calculate).pack()
+        tk.Button(self,text="Reset",command=self.reset).pack()
+        tk.Button(self,text="Copy Result",command=self.copy_result).pack()
 
-        self.tx_selection = None
-        self.rx_selection = None
+        self.result_lbl=tk.Label(self,text="Front: -- km / -- NM\\nSide: -- km / -- NM",fg="white",bg="#1f1f1f")
+        self.result_lbl.pack(pady=10)
 
-    def on_tx_selected(self, val):
-        self.tx_selection = val
+    def tx_options(self):
+        opts=[]
+        for e in DATA:
+            planes=e.get("availablePlane",[])
+            if not isinstance(planes,list):planes=[planes]
+            for p in planes:
+                if e.get("name") and isinstance(e["name"],list) and len(e["name"])>1:
+                    opts.append(f"{p} ({e['name'][0]})")
+                else:
+                    opts.append(p)
+        return opts
 
-    def on_rx_selected(self, val):
-        self.rx_selection = val
+    def rx_options(self):
+        stats={}
+        for e in DATA:
+            f,s=e.get("frontRCS",0),e.get("sideRCS",0)
+            avg=(f+s)/2
+            planes=e.get("availablePlane",[])
+            if not isinstance(planes,list):planes=[planes]
+            for p in planes:
+                if p not in stats:stats[p]={"front":0,"side":0,"avg":0}
+                stats[p]["front"]=max(stats[p]["front"],f)
+                stats[p]["side"]=max(stats[p]["side"],s)
+                stats[p]["avg"]=max(stats[p]["avg"],avg)
+        key=["front","side","avg"][self.sort_mode.get()]
+        return [p for p,_ in sorted(stats.items(),key=lambda kv:kv[1][key],reverse=self.sort_desc)]
 
-    def _parse_tx_label(self, label):
-        if not label:
-            return None, None
-        if " (" in label and label.endswith(")"):
-            plane = label.split(" (", 1)[0].strip()
-            radar = label.split(" (", 1)[1][:-1].strip()
-            return plane, radar
-        return label, None
+    def refresh_rx(self):
+        menu=self.rx_menu["menu"]
+        menu.delete(0,"end")
+        for opt in self.rx_options():
+            menu.add_command(label=opt,command=tk._setit(self.rx_var,opt))
 
-    def _find_tx_entry(self, plane, radar):
-        if not plane:
-            return None
-        if radar:
-            for entry in self.data:
-                names = [n for n in iter_radars(entry) if n is not None]
-                if not names:
-                    continue
-                for p in iter_planes(entry):
-                    if p == plane and radar in names:
-                        return entry
-            return None
-        candidate = None
-        best_hot = -1
-        for entry in self.data:
-            if entry.get("name") is None:
-                continue
-            for p in iter_planes(entry):
-                if p == plane:
-                    hot = entry.get("hotRange", 0) or 0
-                    if hot > best_hot:
-                        best_hot = hot
-                        candidate = entry
-        return candidate
-
-    def _find_rx_entry(self, plane):
-        if not plane:
-            return None
-        candidate = None
-        best_front = -1
-        for entry in self.data:
-            for p in iter_planes(entry):
-                if p == plane:
-                    front = entry.get("frontRCS", 0) or 0
-                    if front > best_front:
-                        best_front = front
-                        candidate = entry
-        return candidate
+    def toggle_order(self):
+        self.sort_desc=not self.sort_desc
+        self.order_btn.config(text="⬆" if self.sort_desc else "⬇")
+        self.refresh_rx()
 
     def calculate(self):
-        if not self.tx_selection or not self.rx_selection:
-            self.result_label.config(text="Front: -- km / -- NM\\nSide:  -- km / -- NM")
+        tx=self.tx_var.get()
+        rx=self.rx_var.get()
+        if not tx or not rx:
+            self.result_lbl.config(text="Front: N/A\\nSide: N/A")
             return
-
-        plane, radar = self._parse_tx_label(self.tx_selection)
-        tx_entry = self._find_tx_entry(plane, radar)
-        rx_entry = self._find_rx_entry(self.rx_selection)
-
+        # find entries
+        tx_entry=None
+        for e in DATA:
+            planes=e.get("availablePlane",[])
+            if not isinstance(planes,list):planes=[planes]
+            if tx.split(" (")[0] in planes:
+                tx_entry=e;break
+        rx_entry=None
+        for e in DATA:
+            planes=e.get("availablePlane",[])
+            if not isinstance(planes,list):planes=[planes]
+            if rx in planes:
+                rx_entry=e;break
         if not tx_entry or not rx_entry:
-            self.result_label.config(text="Front: N/A\\nSide: N/A")
-            return
+            self.result_lbl.config(text="Front: N/A\\nSide: N/A");return
+        hot=tx_entry.get("hotRange",0)
+        f=rx_entry.get("frontRCS",0);s=rx_entry.get("sideRCS",0)
+        if not hot or not f or not s:
+            self.result_lbl.config(text="Front: N/A\\nSide: N/A");return
+        fk=hot*(f**-0.25);sk=hot*(s**-0.25)
+        text=f"Front: {fk:.1f} km / {fk*0.539957:.1f} NM\\nSide: {sk:.1f} km / {sk*0.539957:.1f} NM"
+        self.result_lbl.config(text=text)
+        self._last=text
 
-        hotRange = tx_entry.get("hotRange", 0) or 0
-        front_rcs = rx_entry.get("frontRCS", 0) or 0
-        side_rcs = rx_entry.get("sideRCS", 0) or 0
+    def reset(self):
+        self.tx_var.set("");self.rx_var.set("")
+        self.result_lbl.config(text="Front: -- km / -- NM\\nSide: -- km / -- NM")
 
-        if hotRange == 0 or front_rcs == 0 or side_rcs == 0:
-            self.result_label.config(text="Front: N/A\\nSide: N/A")
-            return
+    def copy_result(self):
+        self.clipboard_clear()
+        self.clipboard_append(getattr(self,"_last",""))
+        messagebox.showinfo("Copied","Result copied to clipboard")
 
-        front_factor = rcs_factor(front_rcs)
-        side_factor = rcs_factor(side_rcs)
-
-        front_km = range_km(hotRange, front_factor)
-        side_km = range_km(hotRange, side_factor)
-        front_nm = km_to_nm(front_km)
-        side_nm = km_to_nm(side_km)
-
-        self.result_label.config(text=f"Front: {front_km} km / {front_nm} NM\\nSide:  {side_km} km / {side_nm} NM")
-
-    def toggle_theme(self):
-        if self.theme is DARK:
-            self.theme = LIGHT
-            self.toggle_btn.config(text="Switch to Dark Mode")
-        else:
-            self.theme = DARK
-            self.toggle_btn.config(text="Switch to Light Mode")
-
-        self.configure(bg=self.theme["bg"])
-        self.tx_dd.update_theme(self.theme)
-        self.rx_dd.update_theme(self.theme)
-        self.calc_btn.config(bg=self.theme["button_bg"], fg=self.theme["button_fg"], activebackground=self.theme["active_bg"])
-        self.toggle_btn.config(bg=self.theme["button_bg"], fg=self.theme["button_fg"], activebackground=self.theme["active_bg"])
-        self.result_label.config(bg=self.theme["bg"], fg=self.theme["fg"])
-
-if __name__ == "__main__":
-    app = RadarCalApp(DATA)
-    app.mainloop()
-`;
+if __name__=="__main__":
+    app=RadarApp();app.mainloop()`;
 
   document.getElementById("downloadPy").addEventListener("click",()=>{
-    const blob = new Blob([pySource], {type: "text/x-python;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "radar_calculator_gui.pyw";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=> URL.revokeObjectURL(url), 2000);
+    const blob=new Blob([pySource],{type:"text/x-python"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;a.download="radar_calculator.pyw";a.click();
+    URL.revokeObjectURL(url);
   });
 
-  // init
+  // Init
   populate();
   </script>
 </body>
