@@ -465,7 +465,10 @@ DATA = [
         "sideRCS": 6
     },
     {
-        "name": ["AN/AWG-11", "AN/APG-59"],
+        "name": [
+            "AN/AWG-11",
+            "AN/APG-59"
+        ],
         "hotRange": 95,
         "coldRange": 6,
         "availablePlane": [
@@ -495,7 +498,10 @@ DATA = [
         "sideRCS": 6
     },
     {
-        "name": ["AN/APQ-120", "AN/APQ-120(V)5"],
+        "name": [
+            "AN/APQ-120",
+            "AN/APQ-120(V)5"
+        ],
         "hotRange": 83,
         "coldRange": 46,
         "availablePlane": [
@@ -698,7 +704,6 @@ DATA = [
         "sideRCS": 1.5e-07
     }
 ]
-
 # ---------------------- End DATA placeholder ----------------------
 
 # ---------------------- Appearance & helpers ----------------------
@@ -794,10 +799,304 @@ def build_transmit_options(data):
     pairs.sort(key=lambda kv: -kv[1])
     return [label for label, _ in pairs]
 
+def build_detect_options(data):
+    """
+    Returns list of detected plane names, one per plane, sorted by highest frontRCS (desc).
+    """
+    plane_best_front = {}
+    for entry in data:
+        front = entry.get("frontRCS", 0) or 0
+        for p in iter_planes(entry):
+            if p is None:
+                continue
+            if front > plane_best_front.get(p, -1):
+                plane_best_front[p] = front
+    # sort by frontRCS desc
+    return [p for p, _ in sorted(plane_best_front.items(), key=lambda kv: -kv[1])]
+
 # ---------------------- Scrollable dropdown ----------------------
-# (original code omitted in this download for brevity)
+class ScrollableDropdown(tk.Frame):
+    open_instance = None       # currently open dropdown instance (or None)
+    _just_closed = False       # flag to stop reopen after close
+
+    def __init__(self, parent, title, options, callback, theme, height=9, width_chars=40):
+        super().__init__(parent, bg=theme["bg"])
+        self.title_label = tk.Label(self, text=title, bg=theme["bg"], fg=theme["fg"], font=FONT)
+        self.title_label.pack(pady=(0, 4))
+
+        self.var = tk.StringVar(value="Select...")
+        self.button = tk.Button(self, textvariable=self.var, anchor="w",
+                                width=width_chars,
+                                bg=theme["button_bg"], fg=theme["button_fg"],
+                                activebackground=theme["active_bg"], font=FONT)
+        self.button.pack(fill="x")
+
+        # bind mouse release instead of direct command
+        self.button.bind("<ButtonRelease-1>", self._on_release)
+
+        self.options = list(options)
+        self.callback = callback
+        self.theme = theme
+        self.height = height
+
+        self.top = None
+        self.listbox = None
+
+    def _on_release(self, event):
+        # Ignore if dropdown was just closed
+        if ScrollableDropdown._just_closed:
+            return
+        self.toggle()
+
+    def toggle(self):
+        if ScrollableDropdown.open_instance and ScrollableDropdown.open_instance is not self:
+            ScrollableDropdown.open_instance.close()
+
+        if self.top:
+            self.close()
+        else:
+            self.open()
+
+    def open(self):
+        if self.top:
+            return
+        ScrollableDropdown.open_instance = self
+
+        # create a popup to host listbox + scrollbar
+        self.top = tk.Toplevel(self)
+        self.top.overrideredirect(True)
+        self.top.configure(bg=self.theme["bg"])
+
+        # position right below the button
+        x = self.button.winfo_rootx()
+        y = self.button.winfo_rooty() + self.button.winfo_height()
+        w = max(self.button.winfo_width(), 200)
+        h = min(self.height * 22, 400)
+        self.top.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = tk.Frame(self.top, bg=self.theme["bg"])
+        frame.pack(fill="both", expand=True)
+
+        self.listbox = tk.Listbox(frame, height=self.height,
+                                  bg=self.theme["listbox_bg"], fg=self.theme["listbox_fg"],
+                                  selectbackground=self.theme["active_bg"], activestyle="none",
+                                  exportselection=False, font=FONT)
+        scrollbar = tk.Scrollbar(frame, command=self.listbox.yview)
+        self.listbox.configure(yscrollcommand=scrollbar.set)
+
+        self.listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for opt in self.options:
+            self.listbox.insert("end", opt)
+
+        # Bind selection and scrolling
+        self.listbox.bind("<<ListboxSelect>>", self._on_select)
+        self.listbox.bind("<MouseWheel>", self._on_mousewheel)       # Windows
+        self.listbox.bind("<Button-4>", lambda e: self.listbox.yview_scroll(-1, "units"))  # Linux
+        self.listbox.bind("<Button-5>", lambda e: self.listbox.yview_scroll(1, "units"))   # Linux
+
+        # Close when focus lost
+        self.top.bind("<FocusOut>", lambda e: self.close())
+        try:
+            self.top.focus_force()
+        except Exception:
+            pass
+
+    def _on_mousewheel(self, event):
+        if self.listbox:
+            delta = 0
+            try:
+                delta = int(event.delta / 120)
+            except Exception:
+                delta = 0
+            if delta:
+                self.listbox.yview_scroll(-delta, "units")
+
+    def _on_select(self, event):
+        sel = self.listbox.curselection()
+        if not sel:
+            return
+        val = self.listbox.get(sel[0])
+        self.var.set(val)
+        if callable(self.callback):
+            self.callback(val)
+        self.close()
+
+    def close(self):
+        if self.top:
+            try:
+                self.top.destroy()
+            except Exception:
+                pass
+        self.top = None
+        self.listbox = None
+        if ScrollableDropdown.open_instance is self:
+            ScrollableDropdown.open_instance = None
+
+        # mark as just closed to prevent reopen loop
+        ScrollableDropdown._just_closed = True
+        self.after(150, lambda: setattr(ScrollableDropdown, "_just_closed", False))
+
+    def update_theme(self, theme):
+        self.theme = theme
+        self.config(bg=theme["bg"])
+        self.title_label.config(bg=theme["bg"], fg=theme["fg"])
+        self.button.config(bg=theme["button_bg"], fg=theme["button_fg"], activebackground=theme["active_bg"])
+        if self.listbox:
+            self.listbox.config(bg=theme["listbox_bg"], fg=theme["listbox_fg"], selectbackground=theme["active_bg"])
+        if self.top:
+            self.top.config(bg=theme["bg"])
+
 # ---------------------- Main app ----------------------
-# (original code omitted in this download for brevity)
+class RadarCalApp(tk.Tk):
+    def __init__(self, data):
+        super().__init__()
+        self.data = data
+
+        self.theme = DARK   # start in dark mode
+        self.title("Radar Detection Calculator")
+        self.geometry("250x350")    # <-- starting size (you control this)
+        self.minsize(250, 350)      # <-- minimum shrink size
+        self.resizable(True, True)  # <-- allow resizing in both directions
+        self.configure(bg=self.theme["bg"])
+
+
+        # build option lists
+        self.tx_options = build_transmit_options(self.data)
+        self.rx_options = build_detect_options(self.data)
+
+        # UI
+        self.tx_dd = ScrollableDropdown(self, "Transmitting Plane", self.tx_options, self.on_tx_selected, self.theme)
+        self.tx_dd.pack(fill="x", padx=20, pady=(12, 8))
+
+        self.rx_dd = ScrollableDropdown(self, "Detected Plane", self.rx_options, self.on_rx_selected, self.theme)
+        self.rx_dd.pack(fill="x", padx=20, pady=(0, 8))
+
+        self.calc_btn = tk.Button(self, text="Calculate", command=self.calculate,
+                                  bg=self.theme["button_bg"], fg=self.theme["button_fg"], font=FONT)
+        self.calc_btn.pack(pady=(6, 12))
+
+        # result label shows km / NM
+        self.result_label = tk.Label(self, text="Front: -- km / -- NM\nSide:  -- km / -- NM",
+                                     bg=self.theme["bg"], fg=self.theme["fg"], font=FONT, justify="center")
+        self.result_label.pack(pady=6)
+
+        self.toggle_btn = tk.Button(self, text="Switch to Light Mode", command=self.toggle_theme,
+                                    bg=self.theme["button_bg"], fg=self.theme["button_fg"], font=FONT)
+        self.toggle_btn.pack(pady=(6, 12))
+
+        # selections
+        self.tx_selection = None
+        self.rx_selection = None
+
+    def on_tx_selected(self, val):
+        # Called when transmit dropdown selection is made (plane or Plane (Radar))
+        self.tx_selection = val
+
+    def on_rx_selected(self, val):
+        self.rx_selection = val
+
+    def _parse_tx_label(self, label):
+        """Return (plane, radar_or_None)"""
+        if not label:
+            return None, None
+        if " (" in label and label.endswith(")"):
+            plane = label.split(" (", 1)[0].strip()
+            radar = label.split(" (", 1)[1][:-1].strip()
+            return plane, radar
+        return label, None
+
+    def _find_tx_entry(self, plane, radar):
+        # If radar given: find entry that lists that radar and plane
+        if not plane:
+            return None
+        if radar:
+            for entry in self.data:
+                # skip entries with no named radar
+                names = [n for n in iter_radars(entry) if n is not None]
+                if not names:
+                    continue
+                for p in iter_planes(entry):
+                    if p == plane and radar in names:
+                        return entry
+            return None
+        # If radar not given, pick entry with highest hotRange for that plane among entries with named radars
+        candidate = None
+        best_hot = -1
+        for entry in self.data:
+            if entry.get("name") is None:
+                continue
+            for p in iter_planes(entry):
+                if p == plane:
+                    hot = entry.get("hotRange", 0) or 0
+                    if hot > best_hot:
+                        best_hot = hot
+                        candidate = entry
+        return candidate
+
+    def _find_rx_entry(self, plane):
+        # choose entry for detected plane with highest frontRCS
+        if not plane:
+            return None
+        candidate = None
+        best_front = -1
+        for entry in self.data:
+            for p in iter_planes(entry):
+                if p == plane:
+                    front = entry.get("frontRCS", 0) or 0
+                    if front > best_front:
+                        best_front = front
+                        candidate = entry
+        return candidate
+
+    def calculate(self):
+        if not self.tx_selection or not self.rx_selection:
+            self.result_label.config(text="Front: -- km / -- NM\nSide:  -- km / -- NM")
+            return
+
+        plane, radar = self._parse_tx_label(self.tx_selection)
+        tx_entry = self._find_tx_entry(plane, radar)
+        rx_entry = self._find_rx_entry(self.rx_selection)
+
+        if not tx_entry or not rx_entry:
+            self.result_label.config(text="Front: N/A\nSide: N/A")
+            return
+
+        hotRange = tx_entry.get("hotRange", 0) or 0
+        front_rcs = rx_entry.get("frontRCS", 0) or 0
+        side_rcs = rx_entry.get("sideRCS", 0) or 0
+
+        if hotRange == 0 or front_rcs == 0 or side_rcs == 0:
+            self.result_label.config(text="Front: N/A\nSide: N/A")
+            return
+
+        front_factor = rcs_factor(front_rcs)
+        side_factor = rcs_factor(side_rcs)
+
+        front_km = range_km(hotRange, front_factor)
+        side_km = range_km(hotRange, side_factor)
+        front_nm = km_to_nm(front_km)
+        side_nm = km_to_nm(side_km)
+
+        self.result_label.config(text=f"Front: {front_km} km / {front_nm} NM\nSide:  {side_km} km / {side_nm} NM")
+
+    def toggle_theme(self):
+        # swap theme and update widgets
+        if self.theme is DARK:
+            self.theme = LIGHT
+            self.toggle_btn.config(text="Switch to Dark Mode")
+        else:
+            self.theme = DARK
+            self.toggle_btn.config(text="Switch to Light Mode")
+
+        self.configure(bg=self.theme["bg"])
+        self.tx_dd.update_theme(self.theme)
+        self.rx_dd.update_theme(self.theme)
+        self.calc_btn.config(bg=self.theme["button_bg"], fg=self.theme["button_fg"], activebackground=self.theme["active_bg"])
+        self.toggle_btn.config(bg=self.theme["button_bg"], fg=self.theme["button_fg"], activebackground=self.theme["active_bg"])
+        self.result_label.config(bg=self.theme["bg"], fg=self.theme["fg"])
+
 
 if __name__ == "__main__":
     app = RadarCalApp(DATA)
