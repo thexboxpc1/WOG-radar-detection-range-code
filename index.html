@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Radar Detection Calculator</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{--bg:#f7f7f8;--card:#ffffff;--accent:#2d7dd2;--text:#111}
+    body{font-family:Segoe UI,Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:1.5rem;display:flex;justify-content:center}
+    #radar-calculator{width:100%;max-width:820px;background:var(--card);box-shadow:0 6px 18px rgba(20,20,20,0.08);border-radius:8px;padding:18px}
+    h1{font-size:1.1rem;margin:0 0 12px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+    .col{flex:1;min-width:220px}
+    label{display:block;font-size:0.85rem;margin-bottom:6px;color:#333}
+    select,button{width:100%;padding:10px;border-radius:6px;border:1px solid #d0d0d0;font-size:0.95rem}
+    select{background:#fff}
+    button{background:var(--accent);color:white;border:none;cursor:pointer}
+    button:active{transform:translateY(1px)}
+    #result{margin-top:12px;padding:10px;border-radius:6px;background:#fbfbff;border:1px solid #eef; font-weight:600}
+    footer{font-size:0.8rem;color:#666;margin-top:14px}
+    @media (max-width:520px){ .row{flex-direction:column} }
+  </style>
+</head>
+<body>
+  <div id="radar-calculator" role="application" aria-label="Radar Detection Calculator">
+    <h1>Radar Detection Calculator</h1>
+
+    <div class="row">
+      <div class="col">
+        <label for="txSelect">Transmitting Plane</label>
+        <select id="txSelect"><option value="">Select transmitting plane…</option></select>
+      </div>
+
+      <div class="col">
+        <label for="rxSelect">Detected Plane</label>
+        <select id="rxSelect"><option value="">Select detected plane…</option></select>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px">
+      <button id="calcBtn" type="button">Calculate</button>
+      <button id="resetBtn" type="button" style="background:#6c757d">Reset</button>
+    </div>
+
+    <div id="result" aria-live="polite">Front: -- km / -- NM<br>Side: -- km / -- NM</div>
+
+    <footer>Tip: select a transmitting plane (Plane (Radar)) and a detected plane, then click Calculate.</footer>
+  </div>
+
+  <script>
+  // ---------------- FULL DATASET ----------------
+  const DATA = [
+  {
+    "name": "AN/APG-81",
+    "hotRange": 550,
+    "coldRange": 480,
+    "availablePlane": "F-35A Block 3F",
+    "frontRCS": 0.00015,
+    "sideRCS": 0.0005
+  },
+  {
+    "name": "AN/APG-82(V)1",
+    "hotRange": 320,
+    "coldRange": 250,
+    "availablePlane": "F-15E Strike Eagle",
+    "frontRCS": 16,
+    "sideRCS": 12
+  },
+  {
+    "name": "AN/APG-63(V)3",
+    "hotRange": 230,
+    "coldRange": 180,
+    "availablePlane": "F-15C Golden Eagle",
+    "frontRCS": 25,
+    "sideRCS": 15
+  },
+  {
+    "name": "N007AM Zaslon-AM",
+    "hotRange": 220,
+    "coldRange": 160,
+    "availablePlane": "MiG-31BM Foxhound",
+    "frontRCS": 15,
+    "sideRCS": 25
+  },
+  {
+    "name": "KLJ-10",
+    "hotRange": 190,
+    "coldRange": 160,
+    "availablePlane": "J-10C Vigorous Dragon",
+    "frontRCS": 0.75,
+    "sideRCS": 3
+  },
+  {
+    "name": "AN/AWG-9",
+    "hotRange": 180,
+    "coldRange": 43,
+    "availablePlane": [
+      "F-14A Tomcat",
+      "F-14B Tomcat"
+    ],
+    "frontRCS": 6,
+    "sideRCS": 16
+  },
+  {
+    "name": "CAPTOR-M",
+    "hotRange": 180,
+    "coldRange": 160,
+    "availablePlane": [
+      "EF2000",
+      "Eurofighter Typhoon"
+    ],
+    "frontRCS": 1.2,
+    "sideRCS": 75
+  },
+  {
+    "name": "N035 Irbis-E",
+    "hotRange": 180,
+    "coldRange": 120,
+    "availablePlane": "Su-35S Flanker-M",
+    "frontRCS": 10,
+    "sideRCS": 22
+  },
+  {
+    "name": "RBE2-AA",
+    "hotRange": 170,
+    "coldRange": 130,
+    "availablePlane": "Rafale C F4",
+    "frontRCS": 0.8,
+    "sideRCS": 4
+  },
+  {
+    "name": "AN/APG-83",
+    "hotRange": 170,
+    "coldRange": 160,
+    "availablePlane": "F-16CM Block 42+ PoBIT",
+    "frontRCS": 1.2,
+    "sideRCS": 4
+  },
+  {
+    "name": "N036",
+    "hotRange": 160,
+    "coldRange": 140,
+    "availablePlane": "Su-57M Felon",
+    "frontRCS": 0.1,
+    "sideRCS": 1.5
+  },
+  {
+    "name": "AN/APG-63(V)1",
+    "hotRange": 160,
+    "coldRange": 130,
+    "availablePlane": "F-15J(M) MTDP Eagle",
+    "frontRCS": 25,
+    "sideRCS": 15
+  },
+  {
+    "name": [
+      "AN/APG-63",
+      "AN/APG-63 PSP"
+    ],
+    "hotRange": 140,
+    "coldRange": 120,
+    "availablePlane": [
+      "F-15J J-MSIP Eagle",
+      "F-15C MSIP II Eagle"
+    ],
+    "frontRCS": 25,
+    "sideRCS": 15
+  },
+  {
+    "name": "AN/APG-68(V)9",
+    "hotRange": 136,
+    "coldRange": 119,
+    "availablePlane": "F-16C Block 52+",
+    "frontRCS": 3,
+    "sideRCS": 6
+  },
+  {
+    "name": "N010M Zhuk-M",
+    "hotRange": 117,
+    "coldRange": 80,
+    "availablePlane": "MiG-29SMT Fulcrum",
+    "frontRCS": 4,
+    "sideRCS": 8
+  },
+  {
+    "name": "RDY-2",
+    "hotRange": 112,
+    "coldRange": 105,
+    "availablePlane": "Mirage 2000-5F",
+    "frontRCS": 3,
+    "sideRCS": 7
+  },
+  {
+    "name": "N001VP Mech",
+    "hotRange": 111,
+    "coldRange": 93,
+    "availablePlane": "Su-27SM3 Flanker-J2",
+    "frontRCS": 15,
+    "sideRCS": 22
+  },
+  {
+    "name": "AN/APG-73",
+    "hotRange": 110,
+    "coldRange": 90,
+    "availablePlane": "F/A-18C Hornet",
+    "frontRCS": 5,
+    "sideRCS": 8
+  },
+  {
+    "name": "J/APG-2",
+    "hotRange": 110,
+    "coldRange": 82,
+    "availablePlane": "F-2A Viper Zero",
+    "frontRCS": 1.7,
+    "sideRCS": 6
+  },
+  {
+    "name": "AN/APG-68(V)7",
+    "hotRange": 105,
+    "coldRange": 92,
+    "availablePlane": "F-16CM Block 50",
+    "frontRCS": 3,
+    "sideRCS": 6
+  },
+  {
+    "name": [
+      "AN/AWG-11",
+      "AN/APG-59"
+    ],
+    "hotRange": 95,
+    "coldRange": 6,
+    "availablePlane": [
+      "Phantom FG.1",
+      "F-4J Phantom II"
+    ],
+    "frontRCS": 7,
+    "sideRCS": 10
+  },
+  {
+    "name": "AI.24 Foxhunter",
+    "hotRange": 94,
+    "coldRange": 77,
+    "availablePlane": [
+      "Tornado F.3",
+      "Tornado F.3 FSP"
+    ],
+    "frontRCS": 9,
+    "sideRCS": 16
+  },
+  {
+    "name": "AN/APG-68(V)5",
+    "hotRange": 92,
+    "coldRange": 50,
+    "availablePlane": "F-16CG Block 40",
+    "frontRCS": 3,
+    "sideRCS": 6
+  },
+  {
+    "name": [
+      "AN/APQ-120",
+      "AN/APQ-120(V)5"
+    ],
+    "hotRange": 83,
+    "coldRange": 46,
+    "availablePlane": [
+      "F-4E Phantom II",
+      "F-4F Phantom II"
+    ],
+    "frontRCS": 7,
+    "sideRCS": 10
+  },
+  {
+    "name": "Type 1492",
+    "hotRange": 79,
+    "coldRange": 64,
+    "availablePlane": "J-8F Finback",
+    "frontRCS": 5,
+    "sideRCS": 12
+  },
+  {
+    "name": "AN/APG-66J",
+    "hotRange": 76,
+    "coldRange": 60,
+    "availablePlane": "F-4EJ Kai Phantom II",
+    "frontRCS": 7,
+    "sideRCS": 10
+  },
+  {
+    "name": "AN/APG-65",
+    "hotRange": 74,
+    "coldRange": 58,
+    "availablePlane": "F/A-18A Hornet",
+    "frontRCS": 5,
+    "sideRCS": 8
+  },
+  {
+    "name": "KLJ-3",
+    "hotRange": 72,
+    "coldRange": 62,
+    "availablePlane": "J-10A Vigorous Dragon",
+    "frontRCS": 2.5,
+    "sideRCS": 4
+  },
+  {
+    "name": "N001 Mech",
+    "hotRange": 68,
+    "coldRange": 25,
+    "availablePlane": "Su-27P Flanker-B",
+    "frontRCS": 15,
+    "sideRCS": 22
+  },
+  {
+    "name": "AN/APG-66A",
+    "hotRange": 64,
+    "coldRange": 59,
+    "availablePlane": "F-16A ADF Block 15",
+    "frontRCS": 3.2,
+    "sideRCS": 6.3
+  },
+  {
+    "name": "RDI",
+    "hotRange": 55,
+    "coldRange": 24,
+    "availablePlane": "Mirage 2000-S5",
+    "frontRCS": 3,
+    "sideRCS": 7
+  },
+  {
+    "name": "N036Kh",
+    "hotRange": 50,
+    "coldRange": 45,
+    "availablePlane": "Su-57M Felon",
+    "frontRCS": 0.1,
+    "sideRCS": 1.5
+  },
+  {
+    "name": "Sapfir-23MLA-II",
+    "hotRange": 42,
+    "coldRange": 30,
+    "availablePlane": "MiG-23MLD",
+    "frontRCS": 9,
+    "sideRCS": 16
+  },
+  {
+    "name": "AN/APG-148",
+    "hotRange": 40,
+    "coldRange": 4,
+    "availablePlane": "A-6E Intruder",
+    "frontRCS": 7,
+    "sideRCS": 12
+  },
+  {
+    "name": "N036B",
+    "hotRange": 40,
+    "coldRange": 37,
+    "availablePlane": "Su-57M Felon",
+    "frontRCS": 0.1,
+    "sideRCS": 1.5
+  },
+  {
+    "name": "N019 Rubin",
+    "hotRange": 29,
+    "coldRange": 17,
+    "availablePlane": "MiG-29 9.12 Fulcrum",
+    "frontRCS": 4,
+    "sideRCS": 8
+  },
+  {
+    "name": "Cyrano II",
+    "hotRange": 23,
+    "coldRange": 17,
+    "availablePlane": "Mirage IIIE",
+    "frontRCS": 7,
+    "sideRCS": 11
+  },
+  {
+    "name": "J/AWG-12",
+    "hotRange": 23,
+    "coldRange": 17,
+    "availablePlane": "Mitsubishi F-1",
+    "frontRCS": 7,
+    "sideRCS": 10
+  },
+  {
+    "name": "AN/APQ-94",
+    "hotRange": 22,
+    "coldRange": 16,
+    "availablePlane": "F-8E Crusader",
+    "frontRCS": 6,
+    "sideRCS": 9
+  },
+  {
+    "name": "AI.23",
+    "hotRange": 19,
+    "coldRange": 15,
+    "availablePlane": "Lightning F.6",
+    "frontRCS": 7,
+    "sideRCS": 12
+  },
+  {
+    "name": "RP-22",
+    "hotRange": 18,
+    "coldRange": 12,
+    "availablePlane": "MiG-21bis",
+    "frontRCS": 5,
+    "sideRCS": 12
+  },
+  {
+    "name": "NASARR F-15A",
+    "hotRange": 17,
+    "coldRange": 14,
+    "availablePlane": "F-104G Starfighter",
+    "frontRCS": 5,
+    "sideRCS": 9
+  },
+  {
+    "name": "AN/APQ-159",
+    "hotRange": 15,
+    "coldRange": 8,
+    "availablePlane": "F-5E Tiger II",
+    "frontRCS": 4,
+    "sideRCS": 8
+  },
+  {
+    "name": null,
+    "hotRange": 0,
+    "coldRange": 0,
+    "availablePlane": "Su-25",
+    "frontRCS": 12,
+    "sideRCS": 16
+  },
+  {
+    "name": null,
+    "hotRange": 0,
+    "coldRange": 0,
+    "availablePlane": "MiG-27K",
+    "frontRCS": 8,
+    "sideRCS": 15
+  },
+  {
+    "name": null,
+    "hotRange": 0,
+    "coldRange": 0,
+    "availablePlane": "A-10A Thunderbolt II",
+    "frontRCS": 12,
+    "sideRCS": 16
+  },
+  {
+    "name": null,
+    "hotRange": 0,
+    "coldRange": 0,
+    "availablePlane": "Alpha Jet A",
+    "frontRCS": 5,
+    "sideRCS": 8
+  },
+  {
+    "name": null,
+    "hotRange": 0,
+    "coldRange": 0,
+    "availablePlane": "Zu-57 Felon",
+    "frontRCS": 0.0000001,
+    "sideRCS": 0.00000015
+  }
+];
+
+  // ---------------- Helpers ----------------
+  function iterPlanes(entry){
+    const p = entry.availablePlane;
+    if(Array.isArray(p)){ return p.slice(); }
+    return [p];
+  }
+  function iterRadars(entry){
+    const r = entry.name;
+    if(Array.isArray(r)){ return r.slice(); }
+    return [r];
+  }
+
+  function rcsFactor(rcs){
+    // (rcs / 5)^(1/4)
+    return Math.pow(rcs / 5, 1/4);
+  }
+  function rangeKm(base, factor){ return Number((base * factor).toFixed(2)); }
+  function kmToNm(km){ return Number((km * 0.539957).toFixed(2)); }
+
+  // Build transmit options: like original Python logic
+  function buildTransmitOptions(data){
+    const radarHot = {};       // radar -> best hotRange
+    const planeToRadars = {};  // plane -> Set(radars)
+
+    data.forEach(entry=>{
+      const hot = entry.hotRange || 0;
+      iterRadars(entry).forEach(r=>{
+        if(r == null) return;
+        radarHot[r] = Math.max(radarHot[r]||0, hot);
+      });
+      iterPlanes(entry).forEach(p=>{
+        if(p == null) return;
+        planeToRadars[p] = planeToRadars[p] || new Set();
+        iterRadars(entry).forEach(r=>{
+          if(r == null) return;
+          planeToRadars[p].add(r);
+        });
+      });
+    });
+
+    const pairs = [];
+    Object.keys(planeToRadars).forEach(plane=>{
+      const rset = Array.from(planeToRadars[plane]);
+      if(rset.length === 0) return; // skip planes that only appear under name==null
+      if(rset.length === 1){
+        const r = rset[0];
+        pairs.push({label:`${plane} (${r})`, hot: radarHot[r]||0});
+      } else {
+        // multiple radars: show each radar entry
+        rset.sort((a,b)=> (radarHot[b]||0) - (radarHot[a]||0));
+        rset.forEach(r=>{
+          pairs.push({label:`${plane} (${r})`, hot: radarHot[r]||0});
+        });
+      }
+    });
+
+    // sort by hot desc
+    pairs.sort((a,b)=> b.hot - a.hot);
+    return pairs.map(p=>p.label);
+  }
+
+  // Build detect options (unique planes) sorted by best frontRCS desc
+  function buildDetectOptions(data){
+    const planeBestFront = {}; // plane -> best frontRCS
+    data.forEach(entry=>{
+      const front = (entry.frontRCS || 0);
+      iterPlanes(entry).forEach(p=>{
+        if(p == null) return;
+        planeBestFront[p] = Math.max(planeBestFront[p]||-1, front);
+      });
+    });
+    return Object.entries(planeBestFront)
+      .sort((a,b)=> b[1]-a[1])
+      .map(kv=>kv[0]);
+  }
+
+  // populate selects
+  const txSelect = document.getElementById("txSelect");
+  const rxSelect = document.getElementById("rxSelect");
+  const resultDiv = document.getElementById("result");
+
+  function populate(){
+    // clear except first option
+    txSelect.length = 1;
+    rxSelect.length = 1;
+
+    const txOptions = buildTransmitOptions(DATA);
+    txOptions.forEach(opt=>{
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = opt;
+      txSelect.appendChild(o);
+    });
+
+    const rxOptions = buildDetectOptions(DATA);
+    rxOptions.forEach(opt=>{
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = opt;
+      rxSelect.appendChild(o);
+    });
+  }
+
+  // utility to parse TX label -> (plane, radar)
+  function parseTxLabel(label){
+    if(!label) return [null,null];
+    const idx = label.lastIndexOf(" (");
+    if(idx !== -1 && label.endsWith(")")){
+      const plane = label.substring(0, idx);
+      const radar = label.substring(idx+2, label.length-1);
+      return [plane.trim(), radar.trim()];
+    }
+    return [label.trim(), null];
+  }
+
+  function findTxEntry(plane, radar){
+    if(!plane) return null;
+    if(radar){
+      for(const e of DATA){
+        const names = iterRadars(e).filter(x=>x!=null);
+        if(names.length === 0) continue;
+        for(const p of iterPlanes(e)){
+          if(p === plane && names.includes(radar)) return e;
+        }
+      }
+      return null;
+    }
+    // if radar not given: pick entry with highest hotRange for that plane among entries with named radars
+    let candidate = null;
+    let bestHot = -1;
+    for(const e of DATA){
+      if(e.name == null) continue;
+      for(const p of iterPlanes(e)){
+        if(p === plane){
+          const hot = e.hotRange || 0;
+          if(hot > bestHot){ bestHot = hot; candidate = e; }
+        }
+      }
+    }
+    return candidate;
+  }
+
+  function findRxEntry(plane){
+    if(!plane) return null;
+    let candidate = null;
+    let bestFront = -1;
+    for(const e of DATA){
+      for(const p of iterPlanes(e)){
+        if(p === plane){
+          const front = e.frontRCS || 0;
+          if(front > bestFront){ bestFront = front; candidate = e; }
+        }
+      }
+    }
+    return candidate;
+  }
+
+  function calculateRadar(){
+    const txVal = txSelect.value;
+    const rxVal = rxSelect.value;
+    if(!txVal || !rxVal){ resultDiv.innerHTML = "Front: -- km / -- NM<br>Side: -- km / -- NM"; return; }
+
+    const [plane, radar] = parseTxLabel(txVal);
+    const txEntry = findTxEntry(plane, radar);
+    const rxEntry = findRxEntry(rxVal);
+
+    if(!txEntry || !rxEntry){ resultDiv.innerHTML = "Front: N/A<br>Side: N/A"; return; }
+
+    const hotRange = txEntry.hotRange || 0;
+    const front_rcs = rxEntry.frontRCS || 0;
+    const side_rcs = rxEntry.sideRCS || 0;
+    if(hotRange === 0 || front_rcs === 0 || side_rcs === 0){ resultDiv.innerHTML = "Front: N/A<br>Side: N/A"; return; }
+
+    const frontFactor = rcsFactor(front_rcs);
+    const sideFactor = rcsFactor(side_rcs);
+    const frontKm = rangeKm(hotRange, frontFactor);
+    const sideKm = rangeKm(hotRange, sideFactor);
+    resultDiv.innerHTML = `Front: ${frontKm} km / ${kmToNm(frontKm)} NM<br>Side: ${sideKm} km / ${kmToNm(sideKm)} NM`;
+  }
+
+  // events
+  document.getElementById("calcBtn").addEventListener("click", calculateRadar);
+  document.getElementById("resetBtn").addEventListener("click", ()=>{ txSelect.selectedIndex=0; rxSelect.selectedIndex=0; resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM"; });
+
+  // initialize UI
+  populate();
+
+  </script>
+</body>
+</html>
