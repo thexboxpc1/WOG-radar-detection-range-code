@@ -33,7 +33,7 @@
     @media (max-width:560px){ .row{flex-direction:column} .controls{flex-direction:column-reverse} }
   </style>
 </head>
-<body>
+<body class="dark">
   <div id="radar-calculator" role="application" aria-label="Radar Detection Calculator">
     <header>
       <div>
@@ -44,7 +44,7 @@
       <div class="controls">
         <div class="top-actions">
           <button id="downloadPy" class="small btn-ghost" title="Download the Python/Tkinter source">Download</button>
-          <button id="themeToggle" class="small btn-ghost" title="Toggle dark / light">Dark mode</button>
+          <button id="themeToggle" class="small btn-ghost" title="Toggle dark / light">Light mode</button>
         </div>
       </div>
     </header>
@@ -124,159 +124,113 @@
     {"name":null,"hotRange":0,"coldRange":0,"availablePlane":"Zu-57 Felon","frontRCS":1e-7,"sideRCS":1.5e-7}
   ];
 
-  // ---------------- Utility helpers ----------------
-  function iterPlanes(entry){
-    const p = entry.availablePlane;
-    if(Array.isArray(p)) return p.slice();
-    return [p];
-  }
-  function iterRadars(entry){
-    const r = entry.name;
-    if(Array.isArray(r)) return r.slice();
-    return [r];
-  }
-  function rcsFactor(rcs){ return Math.pow(rcs / 5, 1/4); }
-  function rangeKm(base, factor){ return Number((base * factor).toFixed(2)); }
-  function kmToNm(km){ return Number((km * 0.539957).toFixed(2)); }
+  // ---------------- Helpers ----------------
+  function iterPlanes(entry){ return Array.isArray(entry.availablePlane)?entry.availablePlane:[entry.availablePlane]; }
+  function iterRadars(entry){ return Array.isArray(entry.name)?entry.name:[entry.name]; }
+  function rcsFactor(rcs){ return Math.pow(rcs/5,1/4); }
+  function rangeKm(base,f){ return Number((base*f).toFixed(2)); }
+  function kmToNm(km){ return Number((km*0.539957).toFixed(2)); }
 
-  // Build transmit options: show radar only if plane has multiple radars
   function buildTransmitOptions(data){
-    const radarHot = {};
-    const planeToRadars = {};
-
+    const radarHot={}, planeToRadars={};
     data.forEach(entry=>{
-      const hot = entry.hotRange || 0;
-      iterRadars(entry).forEach(r=>{
-        if(r == null) return;
-        radarHot[r] = Math.max(radarHot[r]||0, hot);
-      });
+      const hot=entry.hotRange||0;
+      iterRadars(entry).forEach(r=>{ if(r!=null) radarHot[r]=Math.max(radarHot[r]||0,hot); });
       iterPlanes(entry).forEach(p=>{
-        if(p == null) return;
-        planeToRadars[p] = planeToRadars[p] || new Set();
-        iterRadars(entry).forEach(r=>{
-          if(r == null) return;
-          planeToRadars[p].add(r);
-        });
+        if(p==null) return;
+        planeToRadars[p]=planeToRadars[p]||new Set();
+        iterRadars(entry).forEach(r=>{ if(r!=null) planeToRadars[p].add(r); });
       });
     });
-
-    const pairs = [];
-    Object.keys(planeToRadars).forEach(plane=>{
-      const rset = Array.from(planeToRadars[plane]);
-      if(rset.length === 0) return;
-      if(rset.length === 1){
-        pairs.push({label: plane, hot: radarHot[rset[0]]||0});
-      } else {
-        rset.sort((a,b)=> (radarHot[b]||0) - (radarHot[a]||0));
-        rset.forEach(r=>{
-          pairs.push({label:`${plane} (${r})`, hot: radarHot[r]||0});
-        });
+    const pairs=[];
+    Object.keys(planeToRadars).forEach(p=>{
+      const rset=Array.from(planeToRadars[p]);
+      if(rset.length===1){ pairs.push({label:p,hot:radarHot[rset[0]]||0}); }
+      else if(rset.length>1){
+        rset.sort((a,b)=>(radarHot[b]||0)-(radarHot[a]||0));
+        rset.forEach(r=>pairs.push({label:`${p} (${r})`,hot:radarHot[r]||0}));
       }
     });
-
-    pairs.sort((a,b)=> b.hot - a.hot);
+    pairs.sort((a,b)=>b.hot-a.hot);
     return pairs.map(p=>p.label);
   }
 
   function buildDetectOptions(data){
-    const planeBestFront = {};
-    data.forEach(entry=>{
-      const front = (entry.frontRCS || 0);
-      iterPlanes(entry).forEach(p=>{
-        if(p == null) return;
-        planeBestFront[p] = Math.max(planeBestFront[p]||-1, front);
+    const best={};
+    data.forEach(e=>{
+      iterPlanes(e).forEach(p=>{
+        if(p!=null) best[p]=Math.max(best[p]||-1,e.frontRCS||0);
       });
     });
-    return Object.entries(planeBestFront).sort((a,b)=> b[1]-a[1]).map(kv=>kv[0]);
+    return Object.entries(best).sort((a,b)=>b[1]-a[1]).map(kv=>kv[0]);
   }
 
-  const txSelect = document.getElementById("txSelect");
-  const rxSelect = document.getElementById("rxSelect");
-  const resultDiv = document.getElementById("result");
+  const txSelect=document.getElementById("txSelect");
+  const rxSelect=document.getElementById("rxSelect");
+  const resultDiv=document.getElementById("result");
 
   function populate(){
-    txSelect.length = 1; rxSelect.length = 1;
+    txSelect.length=1; rxSelect.length=1;
     buildTransmitOptions(DATA).forEach(opt=>{
-      const o = document.createElement("option"); o.value = opt; o.textContent = opt; txSelect.appendChild(o);
+      const o=document.createElement("option"); o.value=opt; o.textContent=opt; txSelect.appendChild(o);
     });
     buildDetectOptions(DATA).forEach(opt=>{
-      const o = document.createElement("option"); o.value = opt; o.textContent = opt; rxSelect.appendChild(o);
+      const o=document.createElement("option"); o.value=opt; o.textContent=opt; rxSelect.appendChild(o);
     });
   }
 
   function parseTxLabel(label){
     if(!label) return [null,null];
-    const idx = label.lastIndexOf(" (");
-    if(idx !== -1 && label.endsWith(")")){
-      return [label.substring(0, idx).trim(), label.substring(idx+2, label.length-1).trim()];
-    }
-    return [label.trim(), null];
+    const idx=label.lastIndexOf(" (");
+    if(idx!==-1&&label.endsWith(")")) return [label.substring(0,idx),label.substring(idx+2,label.length-1)];
+    return [label,null];
   }
 
-  function findTxEntry(plane, radar){
+  function findTxEntry(plane,radar){
     if(!plane) return null;
     if(radar){
       for(const e of DATA){
-        const names = iterRadars(e).filter(x=>x!=null);
-        if(names.length === 0) continue;
-        for(const p of iterPlanes(e)){
-          if(p === plane && names.includes(radar)) return e;
-        }
+        if(iterPlanes(e).includes(plane)&&iterRadars(e).includes(radar)) return e;
       }
       return null;
     }
-    let candidate = null, bestHot = -1;
+    let cand=null,best=-1;
     for(const e of DATA){
-      if(e.name == null) continue;
-      for(const p of iterPlanes(e)){
-        if(p === plane){
-          const hot = e.hotRange || 0;
-          if(hot > bestHot){ bestHot = hot; candidate = e; }
-        }
-      }
+      if(e.name==null) continue;
+      if(iterPlanes(e).includes(plane)&&(e.hotRange||0)>best){ best=e.hotRange; cand=e; }
     }
-    return candidate;
+    return cand;
   }
 
   function findRxEntry(plane){
-    if(!plane) return null;
-    let candidate = null, bestFront = -1;
+    let cand=null,best=-1;
     for(const e of DATA){
-      for(const p of iterPlanes(e)){
-        if(p === plane){
-          const front = e.frontRCS || 0;
-          if(front > bestFront){ bestFront = front; candidate = e; }
-        }
-      }
+      if(iterPlanes(e).includes(plane)&&(e.frontRCS||0)>best){ best=e.frontRCS; cand=e; }
     }
-    return candidate;
+    return cand;
   }
 
-  function calculate(){
-    const [plane,radar] = parseTxLabel(txSelect.value);
-    const tx = findTxEntry(plane,radar);
-    const rx = findRxEntry(rxSelect.value);
-
-    if(!tx || !rx){ resultDiv.innerHTML="Front: N/A<br>Side: N/A"; return; }
-    const hotRange = tx.hotRange||0;
-    const front = rx.frontRCS||0, side = rx.sideRCS||0;
-    if(hotRange===0||front===0||side===0){ resultDiv.innerHTML="Front: N/A<br>Side: N/A"; return; }
-    const fk = rangeKm(hotRange, rcsFactor(front));
-    const sk = rangeKm(hotRange, rcsFactor(side));
-    const fn = kmToNm(fk), sn = kmToNm(sk);
+  document.getElementById("calcBtn").onclick=()=>{
+    const [plane,radar]=parseTxLabel(txSelect.value);
+    const tx=findTxEntry(plane,radar);
+    const rx=findRxEntry(rxSelect.value);
+    if(!tx||!rx){ resultDiv.textContent="Front: N/A\nSide: N/A"; return; }
+    const hot=tx.hotRange||0, fr=rx.frontRCS||0, sr=rx.sideRCS||0;
+    if(!hot||!fr||!sr){ resultDiv.textContent="Front: N/A\nSide: N/A"; return; }
+    const fk=rangeKm(hot,rcsFactor(fr)), sk=rangeKm(hot,rcsFactor(sr));
+    const fn=kmToNm(fk), sn=kmToNm(sk);
     resultDiv.innerHTML=`Front: ${fk} km / ${fn} NM<br>Side: ${sk} km / ${sn} NM`;
-  }
+  };
 
-  document.getElementById("calcBtn").addEventListener("click", calculate);
-  document.getElementById("resetBtn").addEventListener("click", ()=>{
-    txSelect.selectedIndex=0; rxSelect.selectedIndex=0;
-    resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM";
-  });
+  document.getElementById("resetBtn").onclick=()=>{ txSelect.selectedIndex=0; rxSelect.selectedIndex=0; resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM"; };
 
-  // Theme toggle
-  document.getElementById("themeToggle").addEventListener("click",()=>{
+  const themeToggle=document.getElementById("themeToggle");
+  themeToggle.onclick=()=>{
     document.body.classList.toggle("dark");
-  });
+    themeToggle.textContent=document.body.classList.contains("dark")?"Light mode":"Dark mode";
+  };
+
+  populate();
 
   // ---------------- Download Python Source (safe conversion) ----------------
   function jsToPython(obj){
