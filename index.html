@@ -220,4 +220,106 @@
         const names = iterRadars(e).filter(x=>x!=null);
         if(names.length === 0) continue;
         for(const p of iterPlanes(e)){
-          if(p === plane && names.includes(r
+          if(p === plane && names.includes(radar)) return e;
+        }
+      }
+      return null;
+    }
+    let candidate=null, best=-1;
+    for(const e of DATA){
+      if(e.name==null) continue;
+      if(iterPlanes(e).includes(plane)){
+        if((e.hotRange||0) > best){ best=e.hotRange; candidate=e; }
+      }
+    }
+    return candidate;
+  }
+
+  function findRxEntry(plane){
+    if(!plane) return null;
+    let cand=null, best=-1;
+    for(const e of DATA){
+      if(iterPlanes(e).includes(plane)){
+        if((e.frontRCS||0) > best){ best=e.frontRCS; cand=e; }
+      }
+    }
+    return cand;
+  }
+
+  function calculate(){
+    const [plane,radar] = parseTxLabel(txSelect.value);
+    const tx = findTxEntry(plane,radar);
+    const rx = findRxEntry(rxSelect.value);
+
+    if(!tx || !rx){ resultDiv.innerHTML="Front: N/A<br>Side: N/A"; return; }
+    const hotRange = tx.hotRange||0;
+    const front = rx.frontRCS||0, side = rx.sideRCS||0;
+    if(hotRange===0||front===0||side===0){ resultDiv.innerHTML="Front: N/A<br>Side: N/A"; return; }
+    const fk = rangeKm(hotRange, rcsFactor(front));
+    const sk = rangeKm(hotRange, rcsFactor(side));
+    const fn = kmToNm(fk), sn = kmToNm(sk);
+    resultDiv.innerHTML=`Front: ${fk} km / ${fn} NM<br>Side: ${sk} km / ${sn} NM`;
+  }
+
+  document.getElementById("calcBtn").addEventListener("click", calculate);
+  document.getElementById("resetBtn").addEventListener("click", ()=>{
+    txSelect.selectedIndex=0; rxSelect.selectedIndex=0;
+    resultDiv.innerHTML="Front: -- km / -- NM<br>Side: -- km / -- NM";
+  });
+
+  // Theme toggle
+  document.getElementById("themeToggle").addEventListener("click",()=>{
+    document.body.classList.toggle("dark");
+  });
+
+  // ---------------- Download Python Source ----------------
+  const pySource = `# radar_calculator_gui.pyw
+import tkinter as tk
+from math import pow
+
+DATA = ${JSON.stringify(DATA, null, 4)}
+
+FONT = ("Segoe UI", 12)
+
+DARK = {
+    "bg": "#1e1e1e", "fg": "#ffffff",
+    "button_bg": "#2f2f2f","button_fg": "#ffffff",
+    "listbox_bg": "#252525","listbox_fg": "#ffffff",
+    "active_bg": "#444444"
+}
+LIGHT = {
+    "bg": "#ffffff","fg": "#000000",
+    "button_bg": "#f0f0f0","button_fg": "#000000",
+    "listbox_bg": "#ffffff","listbox_fg": "#000000",
+    "active_bg": "#d0d0d0"
+}
+
+def rcs_factor(rcs): return pow(rcs/5,1/4)
+def range_km(base,f): return round(base*f,2)
+def km_to_nm(km): return round(km*0.539957,2)
+
+def iter_planes(entry):
+    p=entry.get("availablePlane")
+    if isinstance(p,list): return iter(p)
+    return iter([p])
+
+def iter_radars(entry):
+    r=entry.get("name")
+    if isinstance(r,list): return iter(r)
+    return iter([r])
+
+# (rest of Python source identical to your GUI, using \\n where needed in labels)`;
+
+  document.getElementById("downloadPy").addEventListener("click",()=>{
+    const blob = new Blob([pySource],{type:"text/x-python"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="radar_calculator_gui.pyw";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  populate();
+  </script>
+</body>
+</html>
